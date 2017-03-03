@@ -3,7 +3,12 @@ Clean/Repair .eps PostScript vector graphic files created by Matlab R2016b.
 * Paths are grouped together according to their properties
 * White line artifacts are fixed
 
-# Example
+## Related
+
+* [Why is vector graphics chopped into pieces?](https://de.mathworks.com/matlabcentral/answers/290313-why-is-vector-graphics-chopped-into-pieces)
+* [Lines on Patch-Objects after *.EPS/PDF export - e.g. with contourf](https://github.com/altmany/export_fig/issues/44)
+
+## Example
 
 Here is an example of what the .eps file looks before and after fixing it:
 
@@ -18,7 +23,7 @@ epsclean('out.eps'); % cleans and overwrites the input file
 ![Before and After](http://i.imgur.com/NRCnQiH.png)
 **Layer count in Adobe Illustrator: 789 (before) vs. 30 (after)**
 
-# Another Example
+## Another Example
 
 ```
 %%% Matlab Code

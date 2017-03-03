@@ -1,5 +1,5 @@
-# Fixing Matlab Vector Output
-Clean/Repair .eps PostScript vector files created by Matlab R2016b.
+# Fixing Matlab Vector Graphics Output
+Clean/Repair .eps PostScript vector graphic files created by Matlab R2016b.
 * Paths are grouped together according to their properties
 * White line artifacts are fixed
 

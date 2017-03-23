@@ -153,11 +153,11 @@ while ~feof(fid1)
             currentBlockContent = {};
         elseif ~isempty(regexp(line, '^GS$', 'once'))
             nested = nested + 1;
-            currentBlockPrefix = [currentBlockPrefix line newline]; %#ok<AGROW>
+            currentBlockPrefix = [currentBlockPrefix line sprintf('\n')]; %#ok<AGROW>
         elseif ~isempty(regexp(line, '^GR$', 'once'))
             if nested > 0
                 nested = nested - 1;
-                currentBlockPrefix = [currentBlockPrefix line newline]; %#ok<AGROW>
+                currentBlockPrefix = [currentBlockPrefix line sprintf('\n')]; %#ok<AGROW>
             else
                 % end of block without a 'N' = newpath command
                 % we don't know what it is, but we take it as a whole
@@ -166,7 +166,7 @@ while ~feof(fid1)
                 operation = 3;
             end
         else
-            currentBlockPrefix = [currentBlockPrefix line newline]; %#ok<AGROW>
+            currentBlockPrefix = [currentBlockPrefix line sprintf('\n')]; %#ok<AGROW>
         end
     elseif operation == 2 % analyze block content
         if ~isempty(regexp(line, 're$', 'once'))

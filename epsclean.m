@@ -1,5 +1,5 @@
 function epsclean( file, outfile, removeBoxes )
-%EPSCLEAN(F,O,R) Cleans up a Matlab exported .eps file.
+% EPSCLEAN Cleans up a MATLAB exported .eps file.
 %
 %   EPSCLEAN(F) cleans the .eps file F without removing box elements.
 %   EPSCLEAN(F,O,R) cleans the .eps file F, writes the result to file O and optionally removes box elements if R = true.
@@ -20,8 +20,8 @@ function epsclean( file, outfile, removeBoxes )
 %       contourf(z);
 %       print(gcf,'-depsc','-painters','out.eps');
 %       epsclean('out.eps'); % cleans and overwrites the input file
-%       %epsclean('out.eps','clean.eps'); % leaves the input file intact
-%       %epsclean('out.eps','out.eps',true); % cleans and overwrites input file plus removes box elements
+%       epsclean('out.eps','clean.eps'); % leaves the input file intact
+%       epsclean('out.eps','out.eps',true); % cleans and overwrites input file plus removes box elements
 %
 %   Example 2
 %   ---------

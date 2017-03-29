@@ -93,8 +93,8 @@ while ~feof(fid1)
         if blockGood
             blockIdx = 0;
             for ii = 1:length(blockList)
-                block = blockList(ii);
-                if strcmp(block.prefix, currentBlockPrefix)
+
+                if strcmp(blockList(ii).prefix, currentBlockPrefix)
                     blockIdx = ii;
                     break;
                 end

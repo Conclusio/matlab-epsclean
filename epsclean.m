@@ -1,5 +1,5 @@
 function epsclean( file, outfile, removeBoxes )
-%EPSCLEAN(F,O,R) Cleans up a Matlab exported .eps file.
+% EPSCLEAN Cleans up a MATLAB exported .eps file.
 %
 %   EPSCLEAN(F) cleans the .eps file F without removing box elements.
 %   EPSCLEAN(F,O,R) cleans the .eps file F, writes the result to file O and optionally removes box elements if R = true.
@@ -20,8 +20,8 @@ function epsclean( file, outfile, removeBoxes )
 %       contourf(z);
 %       print(gcf,'-depsc','-painters','out.eps');
 %       epsclean('out.eps'); % cleans and overwrites the input file
-%       %epsclean('out.eps','clean.eps'); % leaves the input file intact
-%       %epsclean('out.eps','out.eps',true); % cleans and overwrites input file plus removes box elements
+%       epsclean('out.eps','clean.eps'); % leaves the input file intact
+%       epsclean('out.eps','out.eps',true); % cleans and overwrites input file plus removes box elements
 %
 %   Example 2
 %   ---------
@@ -57,11 +57,6 @@ function epsclean( file, outfile, removeBoxes )
 %   You should have received a copy of the GNU Lesser General Public License
 %   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-if ~exist('newline', 'builtin')
-    % for Matlab < R2016b
-    newline = sprintf('\n');
-end
-
 if ~exist('removeBoxes','var')
     removeBoxes = false;
 end
@@ -83,28 +78,28 @@ blockList = [];
 nested = 0;
 
 while ~feof(fid1)
-    line = fgetl(fid1);
-    
+    thisLine = fgetl(fid1);
+
     % normal read until '%%EndPageSetup'
     if operation == -1
-        if ~isempty(regexp(line, '^%%EndPageSetup$', 'once'))
+        if ~isempty(regexp(thisLine, '^%%EndPageSetup$', 'once'))
             operation = 0;
         end
-        fprintf(fid2, '%s\n', line);
+        fprintf(fid2, '%s\n', thisLine);
         continue;
     end
-    
+
     if operation == 3 % block was analyzed
         if blockGood
             blockIdx = 0;
             for ii = 1:length(blockList)
-                block = blockList(ii);
-                if strcmp(block.prefix, currentBlockPrefix)
+
+                if strcmp(blockList(ii).prefix, currentBlockPrefix)
                     blockIdx = ii;
                     break;
                 end
             end
-            
+
             if blockIdx == 0
                 % new block
                 block = struct();
@@ -125,12 +120,12 @@ while ~feof(fid1)
 
 
     if operation == 0 % waiting for blocks
-        if ~isempty(regexp(line, '^GS$', 'once'))
+        if ~isempty(regexp(thisLine, '^GS$', 'once'))
             % start of a block
             operation = 1;
-        elseif ~isempty(regexp(line, '^%%Trailer$', 'once'))
+        elseif ~isempty(regexp(thisLine, '^%%Trailer$', 'once'))
             % end of figures -> dump all blocks
-            
+
             for block = blockList
                 fprintf(fid2, 'GS\n%s', block.prefix);
                 if ~isempty(block.content)
@@ -141,28 +136,28 @@ while ~feof(fid1)
                 end
                 fprintf(fid2, 'GR\n');
             end
-            
-            fprintf(fid2, '%s\n', line);
-        elseif ~isempty(regexp(line, '^GR$', 'once'))
+
+            fprintf(fid2, '%s\n', thisLine);
+        elseif ~isempty(regexp(thisLine, '^GR$', 'once'))
             % unexpected GR before a corresponding GS -> ignore
         else
             % not inside a block and not the start of a block -> just take it
-            fprintf(fid2, '%s\n', line);
+            fprintf(fid2, '%s\n', thisLine);
         end
     elseif operation == 1 % inside GS/GR block
         % build prefix
-        if ~isempty(regexp(line, '^N$', 'once'))
+        if ~isempty(regexp(thisLine, '^N$', 'once'))
             % begin analyzing
             operation = 2;
             blockGood = true;
             currentBlockContent = {};
-        elseif ~isempty(regexp(line, '^GS$', 'once'))
+        elseif ~isempty(regexp(thisLine, '^GS$', 'once'))
             nested = nested + 1;
-            currentBlockPrefix = [currentBlockPrefix line newline]; %#ok<AGROW>
-        elseif ~isempty(regexp(line, '^GR$', 'once'))
+            currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
+        elseif ~isempty(regexp(thisLine, '^GR$', 'once'))
             if nested > 0
                 nested = nested - 1;
-                currentBlockPrefix = [currentBlockPrefix line newline]; %#ok<AGROW>
+                currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine); 
             else
                 % end of block without a 'N' = newpath command
                 % we don't know what it is, but we take it as a whole
@@ -171,36 +166,36 @@ while ~feof(fid1)
                 operation = 3;
             end
         else
-            currentBlockPrefix = [currentBlockPrefix line newline]; %#ok<AGROW>
+            currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
         end
     elseif operation == 2 % analyze block content
-        if ~isempty(regexp(line, 're$', 'once'))
+        if ~isempty(regexp(thisLine, 're$', 'once'))
             if removeBoxes
                 blockGood = false;
             else
-                currentBlockContent{end+1} = line; %#ok<AGROW>
+                currentBlockContent{end+1} = thisLine; %#ok<AGROW>
             end
-        elseif ~isempty(regexp(line, 'M$', 'once'))
+        elseif ~isempty(regexp(thisLine, 'M$', 'once'))
             % there should be a L after M
             nextline = fgetl(fid1);
             if ~isempty(regexp(nextline, 'L$', 'once'))
-                if strcmp(line(1:end-1),nextline(1:end-1))
-                    % move and line statement are the same -> basically a zero point, we don't want that
+                if strcmp(thisLine(1:end-1),nextline(1:end-1))
+                    % move and thisLine statement are the same -> basically a zero point, we don't want that
                     blockGood = false;
                 end
             end
-            
-            currentBlockContent{end+1} = line; %#ok<AGROW>
+
+            currentBlockContent{end+1} = thisLine; %#ok<AGROW>
             currentBlockContent{end+1} = nextline; %#ok<AGROW>
-            
-        elseif ~isempty(regexp(line, '^GR$', 'once'))
+
+        elseif ~isempty(regexp(thisLine, '^GR$', 'once'))
             % end of block content
             operation = 3;
         else
-            currentBlockContent{end+1} = line; %#ok<AGROW>
+            currentBlockContent{end+1} = thisLine; %#ok<AGROW>
         end
     end
-        
+
 end %while
 
 fclose(fid1);

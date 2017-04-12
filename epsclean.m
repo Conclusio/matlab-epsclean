@@ -93,7 +93,6 @@ while ~feof(fid1)
         if blockGood
             blockIdx = 0;
             for ii = 1:length(blockList)
-
                 if strcmp(blockList(ii).prefix, currentBlockPrefix)
                     blockIdx = ii;
                     break;
@@ -123,13 +122,16 @@ while ~feof(fid1)
         if ~isempty(regexp(thisLine, '^GS$', 'once'))
             % start of a block
             operation = 1;
+            nested = 0;
         elseif ~isempty(regexp(thisLine, '^%%Trailer$', 'once'))
             % end of figures -> dump all blocks
 
             for block = blockList
                 fprintf(fid2, 'GS\n%s', block.prefix);
                 if ~isempty(block.content)
-                    fprintf(fid2, 'N\n');
+                    if ~isempty(regexp(block.prefix, 'clip$', 'once')) % does not end with clip
+                        fprintf(fid2, 'N\n');
+                    end
                     for c = block.content
                         fprintf(fid2, '%s\n', cell2mat(c));
                     end
@@ -155,8 +157,8 @@ while ~feof(fid1)
             nested = nested + 1;
             currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
         elseif ~isempty(regexp(thisLine, '^GR$', 'once'))
-            if nested > 0
-                nested = nested - 1;
+            nested = nested - 1;
+            if nested >= 0
                 currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine); 
             else
                 % end of block without a 'N' = newpath command
@@ -175,6 +177,9 @@ while ~feof(fid1)
             else
                 currentBlockContent{end+1} = thisLine; %#ok<AGROW>
             end
+        elseif ~isempty(regexp(thisLine, '^clip$', 'once'))
+            currentBlockPrefix = sprintf('%s%s\n%s\n', currentBlockPrefix, strjoin(currentBlockContent,'\n'), thisLine);
+            currentBlockContent = {};
         elseif ~isempty(regexp(thisLine, 'M$', 'once'))
             % there should be a L after M
             nextline = fgetl(fid1);
@@ -187,10 +192,16 @@ while ~feof(fid1)
 
             currentBlockContent{end+1} = thisLine; %#ok<AGROW>
             currentBlockContent{end+1} = nextline; %#ok<AGROW>
-
+        elseif ~isempty(regexp(thisLine, '^GS$', 'once'))
+            nested = nested + 1;
+            currentBlockContent{end+1} = thisLine; %#ok<AGROW>
         elseif ~isempty(regexp(thisLine, '^GR$', 'once'))
-            % end of block content
-            operation = 3;
+            nested = nested - 1;
+            if nested >= 0
+                currentBlockContent{end+1} = thisLine; %#ok<AGROW>
+            else
+                operation = 3; % end of block content
+            end            
         else
             currentBlockContent{end+1} = thisLine; %#ok<AGROW>
         end

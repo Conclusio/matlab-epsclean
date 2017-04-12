@@ -76,7 +76,6 @@ operation = -1; % -1 .. wait for 'EndPageSetup', 0 .. wait for blocks, 1 .. crea
 blockGood = true;
 blockList = [];
 nested = 0;
-lastMoveLine = [];
 
 while ~feof(fid1)
     thisLine = fgetl(fid1);
@@ -178,32 +177,19 @@ while ~feof(fid1)
             end
         elseif ~isempty(regexp(thisLine, 'M$', 'once'))
             % there should be a L after M
-            lastMoveLine = thisLine;
-            useLines = true;
             nextline = fgetl(fid1);
             if ~isempty(regexp(nextline, 'L$', 'once'))
                 if strcmp(thisLine(1:end-1),nextline(1:end-1))
                     % move and thisLine statement are the same -> basically a zero point, we don't want that
-                    useLines = false;
+                    blockGood = false;
                 end
             end
 
-            if useLines
-                currentBlockContent{end+1} = thisLine; %#ok<AGROW>
-                currentBlockContent{end+1} = nextline; %#ok<AGROW>
-            end
-        elseif ~isempty(regexp(thisLine, 'L$', 'once'))
-            % for multiple consecutive "L" lines
-            if ~isempty(lastMoveLine)
-                currentBlockContent{end+1} = lastMoveLine; %#ok<AGROW>
-                lastMoveLine = [];
-            end
             currentBlockContent{end+1} = thisLine; %#ok<AGROW>
+            currentBlockContent{end+1} = nextline; %#ok<AGROW>
+
         elseif ~isempty(regexp(thisLine, '^GR$', 'once'))
             % end of block content
-            if isempty(currentBlockContent)
-                blockGood = false; % no need for blocks with empty paths
-            end
             operation = 3;
         else
             currentBlockContent{end+1} = thisLine; %#ok<AGROW>

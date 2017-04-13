@@ -88,7 +88,7 @@ if ~keepInput || strcmp(file, outfile)
 end
 
 fid1 = fopen(file,'r');
-fid2 = fopen(outfile,'w');
+fid2 = fopen(outfile,'W');
 
 previousBlockPrefix = [];
 currentBlockPrefix = [];
@@ -109,7 +109,7 @@ while ~feof(fid1)
     
     % normal read until '%%EndPageSetup'
     if operation == -1
-        if ~isempty(regexp(thisLine, '^%%EndPageSetup$', 'once'))
+        if equalsWith(thisLine, '%%EndPageSetup')
             operation = 0;
         end
         fprintf(fid2, '%s\n', thisLine);
@@ -166,16 +166,16 @@ while ~feof(fid1)
 
 
     if operation == 0 % waiting for blocks
-        if ~isempty(regexp(thisLine, '^GS$', 'once'))
+        if equalsWith(thisLine,'GS')
             % start of a block
             operation = 1;
             hasLineCap = false;
             nested = 0;
-        elseif ~isempty(regexp(thisLine, '^%%Trailer$', 'once'))
+        elseif equalsWith(thisLine,'%%Trailer')
             % end of figures -> dump all blocks
             writeBlocks(blockList, blockMap, fid2);
             fprintf(fid2, '%s\n', thisLine);
-        elseif ~isempty(regexp(thisLine, '^GR$', 'once'))
+        elseif equalsWith(thisLine,'GR')
             % unexpected GR before a corresponding GS -> ignore
         else
             % not inside a block and not the start of a block -> just take it
@@ -183,16 +183,16 @@ while ~feof(fid1)
         end
     elseif operation == 1 % inside GS/GR block
         % build prefix
-        if ~isempty(regexp(thisLine, '^%AXGBegin', 'once'))
+        if startsWith(thisLine,'%AXGBegin')
             % this could be the beginning of a raw bitmap data block -> just take it
             insideAxg = true;
             currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
-        elseif ~isempty(regexp(thisLine, '^%AXGEnd', 'once'))
+        elseif startsWith(thisLine,'%AXGEnd')
             insideAxg = false;
             currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
         elseif insideAxg
             currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
-        elseif ~isempty(regexp(thisLine, '^N$', 'once'))
+        elseif equalsWith(thisLine,'N')
             % begin analyzing
             operation = 2;
             blockGood = true;
@@ -204,10 +204,10 @@ while ~feof(fid1)
                     {'nodeCount','adjMat','id2idxMap','idx2idMap'},...
                     {0,false(100),containers.Map(),containers.Map('KeyType','uint32','ValueType','char')});
             end
-        elseif ~isempty(regexp(thisLine, '^GS$', 'once'))
+        elseif equalsWith(thisLine,'GS')
             nested = nested + 1;
             currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
-        elseif ~isempty(regexp(thisLine, '^GR$', 'once'))
+        elseif equalsWith(thisLine,'GR')
             nested = nested - 1;
             if nested >= 0
                 currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
@@ -219,10 +219,10 @@ while ~feof(fid1)
                 currentBlockContentFull = {};
                 operation = 3;
             end
-        elseif ~isempty(regexp(thisLine, 'setlinecap$', 'once'))
+        elseif endsWith(thisLine,'setlinecap')
             hasLineCap = true;
             currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
-        elseif ~isempty(regexp(thisLine, 'LJ$', 'once'))
+        elseif endsWith(thisLine,'LJ')
             if hasLineCap
                 currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
             else
@@ -233,26 +233,26 @@ while ~feof(fid1)
             currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
         end
     elseif operation == 2 % analyze block content
-        if ~isempty(regexp(thisLine, '^%AXGBegin', 'once'))
+        if startsWith(thisLine,'%AXGBegin')
             % this could be the beginning of a raw bitmap data block -> just take it
             insideAxg = true;
             currentBlockContent{end+1} = thisLine; %#ok<AGROW>
             currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
-        elseif ~isempty(regexp(thisLine, '^%AXGEnd', 'once'))
+        elseif startsWith(thisLine,'%AXGEnd')
             insideAxg = false;
             currentBlockContent{end+1} = thisLine; %#ok<AGROW>
             currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
         elseif insideAxg
             currentBlockContent{end+1} = thisLine; %#ok<AGROW>
             currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
-        elseif ~isempty(regexp(thisLine, 're$', 'once'))
+        elseif endsWith(thisLine,'re')
             if removeBoxes
                 blockGood = false;
             else
                 currentBlockContent{end+1} = thisLine; %#ok<AGROW>
                 currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
             end
-        elseif ~isempty(regexp(thisLine, '^clip$', 'once'))
+        elseif equalsWith(thisLine,'clip')
             blockMap.remove(currentBlockPrefix);
             currentBlockPrefix = sprintf('%sN\n%s\n%s\n', currentBlockPrefix, strjoin(currentBlockContentFull,'\n'), thisLine);
             currentBlockContent = {};
@@ -263,7 +263,7 @@ while ~feof(fid1)
                     {0,false(100),containers.Map(),containers.Map('KeyType','uint32','ValueType','char')});
             end
 
-        elseif ~isempty(regexp(thisLine, 'M$', 'once'))
+        elseif endsWith(thisLine,'M')
             lastMoveLine = thisLine;
             nextline = fgetl(fid1); % ASSUMPTION: there is an L directly after an M
             lastLineLine = nextline;
@@ -272,30 +272,30 @@ while ~feof(fid1)
             addConnection(blockMap, currentBlockPrefix, moveId, lineId);
             currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
             currentBlockContentFull{end+1} = nextline; %#ok<AGROW>
-        elseif ~isempty(regexp(thisLine, '^cp$', 'once'))
+        elseif equalsWith(thisLine,'cp')
             moveId = lastLineLine(1:end-1);
             lineId = lastMoveLine(1:end-1);
             addConnection(blockMap, currentBlockPrefix, moveId, lineId);
             lastLineLine = lastMoveLine;
             currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
-        elseif ~isempty(regexp(thisLine, 'L$', 'once'))
+        elseif endsWith(thisLine,'L')
             moveId = lastLineLine(1:end-1);
             lineId = thisLine(1:end-1);
             addConnection(blockMap, currentBlockPrefix, moveId, lineId);
             lastLineLine = thisLine;
             currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
-        elseif ~isempty(regexp(thisLine, '^f$', 'once'))
+        elseif equalsWith(thisLine,'f')
             % special handling for filled areas
             currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
             currentBlockContent = currentBlockContentFull;
             % remove all connections:
             b = blockMap(currentBlockPrefix);
             b('nodeCount') = 0; %#ok<NASGU>
-        elseif ~isempty(regexp(thisLine, '^GS$', 'once'))
+        elseif equalsWith(thisLine,'GS')
             nested = nested + 1;
             currentBlockContent{end+1} = thisLine; %#ok<AGROW>
             currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
-        elseif ~isempty(regexp(thisLine, '^GR$', 'once'))
+        elseif equalsWith(thisLine,'GR')
             % end of block content
             nested = nested - 1;
             if nested >= 0
@@ -319,6 +319,29 @@ if ~keepInput
     movefile(outfile, file);
 end
 
+end
+
+
+function r = startsWith(string1, pattern)
+    l = length(pattern);
+    if length(string1) < l
+        r = false;
+    else
+        r = strcmp(string1(1:l),pattern);
+    end
+end
+
+function r = endsWith(string1, pattern)
+    l = length(pattern);
+    if length(string1) < l
+        r = false;
+    else
+        r = strcmp(string1(end-l+1:end),pattern);
+    end
+end
+
+function r = equalsWith(string1, pattern)
+    r = strcmp(string1,pattern);
 end
 
 function id = getNodeId(blockMap, blockId, nodeIndex)

@@ -2,6 +2,7 @@
 Clean/Repair .eps PostScript vector graphic files created by Matlab R2016b.
 * Paths are grouped together according to their properties
 * White line artifacts are fixed
+* Broken up polylines are connected back together if they share the same properties (good for post-processing in Illustrator/Inkscape/etc.)
 
 ## Related
 
@@ -38,3 +39,14 @@ epsclean('out.eps'); % cleans and overwrites the input file
 
 ![Before and After](http://i.imgur.com/ag8LV7i.png)
 **Layer count in Adobe Illustrator: 11,775 (before) vs. 76 (after)**
+
+## Notes
+
+* If you experience Z-order problems (i.e. the overlappings of your graphics change) try using parameter 'groupSoft' = true.
+```
+%%% Matlab Code
+epsclean('out.eps',false,true); % the third parameter is for Z-order problems
+```
+
+* Have a look at the tests/cleantest.m script for test cases and examples
+* Report any problems here at github with your examples (code or .eps file). I try my best to fix them

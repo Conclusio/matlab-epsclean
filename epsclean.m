@@ -197,8 +197,6 @@ while lineIdx < lineCount
             % begin analyzing
             operation = 2;
             blockGood = true;
-            cbContentLines = -ones(1,100);
-            cbContentLinesFull = -ones(1,100);
             cbContentLinesIdx = 1;
             cbContentLinesFullIdx = 1;
             lastMoveLine = [];
@@ -215,8 +213,6 @@ while lineIdx < lineCount
                 % we don't know what it is, but we take it as a whole
                 operation = 3;
                 blockGood = true;
-                cbContentLines = -ones(1,100);
-                cbContentLinesFull = -ones(1,100);
                 cbContentLinesIdx = 1;
                 cbContentLinesFullIdx = 1;
                 [cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNewBlock] = getBlockData(blockMap,cbPrefix);
@@ -253,8 +249,6 @@ while lineIdx < lineCount
         elseif equalsWith(thisLine,'clip')
             blockMap.remove(cbPrefix);
             cbPrefix = sprintf('%sN\n%s\n%s\n', cbPrefix, strjoin(fileContent(cbContentLinesFull(1:cbContentLinesFullIdx-1))), thisLine);
-            cbContentLines = -ones(1,100);
-            cbContentLinesFull = -ones(1,100);
             cbContentLinesIdx = 1;
             cbContentLinesFullIdx = 1;
             [cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNewBlock] = getBlockData(blockMap,cbPrefix);

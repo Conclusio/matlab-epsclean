@@ -103,6 +103,7 @@ lastLineLine = [];
 blockMap = containers.Map(); % blockPrefix -> MAP with nodeCount, adjMat, id2idxMap, idx2idArray
 
 % current block data:
+cbNewBlock = false;
 cbNodeCount = [];
 cbAdjMat = [];
 cbId2idxMap = [];
@@ -134,8 +135,6 @@ while lineIdx < lineCount
     
     if operation == 3 % block was analyzed
         if blockGood
-            setBlockData(blockMap,cbPrefix,cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray);
-
             if groupSoft && ~strcmp(cbPrefix, previousBlockPrefix)
                 % SOFT GROUPING. different block -> dump all existent ones except the current one
 
@@ -153,24 +152,12 @@ while lineIdx < lineCount
                     blockMap(cbPrefix) = currentBlock;
                 end
             end
-            
-            blockIdx = 0;
-            for ii = 1:length(blockList)
-                block = blockList(ii);
-                if strcmp(block.prefix, cbPrefix)
-                    blockIdx = ii;
-                    break;
-                end
-            end
-            
-            if blockIdx == 0
+
+            setBlockData(blockMap,cbPrefix,cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray,cbContentLines(1:cbContentLinesIdx-1));
+            if cbNewBlock
                 % new block
-                block = struct();
-                block.prefix = cbPrefix;
-                block.contentLines = cbContentLines(1:cbContentLinesIdx-1);
+                block = struct('prefix', cbPrefix);
                 blockList = [blockList block]; %#ok<AGROW>
-            else
-                blockList(blockIdx).contentLines = [blockList(blockIdx).contentLines(1:end-1) cbContentLines(1:cbContentLinesIdx-1)]; %#ok<AGROW>
             end
         end
         operation = 0;
@@ -215,7 +202,7 @@ while lineIdx < lineCount
             cbContentLinesIdx = 1;
             cbContentLinesFullIdx = 1;
             lastMoveLine = [];
-            [cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray] = getBlockData(blockMap,cbPrefix);
+            [cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNewBlock] = getBlockData(blockMap,cbPrefix);
         elseif equalsWith(thisLine,'GS')
             nested = nested + 1;
             cbPrefix = sprintf('%s%s\n',cbPrefix, thisLine);
@@ -226,12 +213,13 @@ while lineIdx < lineCount
             else
                 % end of block without a 'N' = newpath command
                 % we don't know what it is, but we take it as a whole
+                operation = 3;
                 blockGood = true;
                 cbContentLines = -ones(1,100);
                 cbContentLinesFull = -ones(1,100);
                 cbContentLinesIdx = 1;
                 cbContentLinesFullIdx = 1;
-                operation = 3;
+                [cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNewBlock] = getBlockData(blockMap,cbPrefix);
             end
         elseif endsWith(thisLine,'setlinecap')
             hasLineCap = true;
@@ -269,7 +257,7 @@ while lineIdx < lineCount
             cbContentLinesFull = -ones(1,100);
             cbContentLinesIdx = 1;
             cbContentLinesFullIdx = 1;
-            [cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray] = getBlockData(blockMap,cbPrefix);
+            [cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNewBlock] = getBlockData(blockMap,cbPrefix);
         elseif endsWith(thisLine,'M')
             lastMoveLine = thisLine;
             lineIdx = lineIdx + 1;
@@ -365,7 +353,7 @@ function [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFull
     end
 end
 
-function setBlockData(blockMap,blockId,nodeCount,adjMat,id2idxMap,idx2idArray)
+function setBlockData(blockMap,blockId,nodeCount,adjMat,id2idxMap,idx2idArray,contentLines)
     if ~blockMap.isKey(blockId)
         return; % a block without nodes. probably without an 'N' statement
     end
@@ -373,26 +361,30 @@ function setBlockData(blockMap,blockId,nodeCount,adjMat,id2idxMap,idx2idArray)
     theblock('nodeCount') = nodeCount;
     theblock('adjMat') = adjMat;
     theblock('id2idxMap') = id2idxMap;
-    theblock('idx2idArray') = idx2idArray; %#ok<NASGU>
+    theblock('idx2idArray') = idx2idArray;
+
+    oldContentLines = theblock('contentLines');
+    theblock('contentLines') = [oldContentLines(1:end-1) contentLines]; %#ok<NASGU>
 end
 
-function [nodeCount,adjMat,id2idxMap,idx2idArray] = getBlockData(blockMap,blockId)
-
+function [nodeCount,adjMat,id2idxMap,idx2idArray,newBlock] = getBlockData(blockMap,blockId)
     if blockMap.isKey(blockId)
+        newBlock = false;
         theblock = blockMap(blockId);
         nodeCount = theblock('nodeCount');
         adjMat = theblock('adjMat');
         id2idxMap = theblock('id2idxMap');
         idx2idArray = theblock('idx2idArray');
     else
+        newBlock = true;
         nodeCount = 0;
         adjMat = false(100);
         id2idxMap = containers.Map('KeyType','char','ValueType','uint32');
         idx2idArray = cell(1,100);
         
         blockMap(blockId) = containers.Map(...
-            {'nodeCount','adjMat','id2idxMap','idx2idArray'},...
-            {nodeCount,adjMat,id2idxMap,idx2idArray}); %#ok<NASGU>
+            {'nodeCount','adjMat','id2idxMap','idx2idArray','contentLines'},...
+            {nodeCount,adjMat,id2idxMap,idx2idArray,[]}); %#ok<NASGU>
     end
 end
 
@@ -432,65 +424,66 @@ function [adjMat,idx2idArray,nodeCount] = addConnection(adjMat, id2idxMap, idx2i
 end
 
 function writeBlocks(blockList, blockMap, fileId, fileContent)
-    for block = blockList
-        fprintf(fileId, 'GS\n%s', block.prefix);
-        if blockMap.isKey(block.prefix)
-            theblock = blockMap(block.prefix);
-            nodeCount = theblock('nodeCount');
-            idx2idArray = theblock('idx2idArray');
+    for ii = 1:length(blockList)
+        blockId = blockList(ii).prefix;
+        fprintf(fileId, 'GS\n%s', blockId);
+        
+        theblock = blockMap(blockId);
+        nodeCount = theblock('nodeCount');
+        idx2idArray = theblock('idx2idArray');
+        contentLines = theblock('contentLines');
 
-            am = theblock('adjMat');
-            am = am(1:nodeCount,1:nodeCount);
-            connCount = sum(am,1);
-            total = sum(connCount,2);
+        am = theblock('adjMat');
+        am = am(1:nodeCount,1:nodeCount);
+        connCount = sum(am,1);
+        total = sum(connCount,2);
 
-            if total == 0
-                if ~isempty(block.contentLines)
-                    if isempty(regexp(block.prefix, sprintf('clip\n$'), 'once')) % prefix does not end with clip
-                        fprintf(fileId, 'N\n');
-                    end
-                    
-                    fprintf(fileId, '%s\n', strjoin(fileContent(block.contentLines),'\n'));
+        if total == 0
+            if ~isempty(contentLines)
+                if isempty(regexp(blockId, sprintf('clip\n$'), 'once')) % prefix does not end with clip
+                    fprintf(fileId, 'N\n');
                 end
-            else
-                fprintf(fileId, 'N\n');
 
-                [~,sidx] = sort(connCount);
-                for ni = sidx
-                    firstNode = -1;
-                    first = true;
-                    search = true;
-                    node = ni;
-
-                    while(search)
-                        neighbours = find(am(node,:));
-                        search = false;
-                        for nni = neighbours
-                            if ~am(node,nni)
-                                continue; % edge visited
-                            end
-                            if first
-                                fprintf(fileId, '%sM\n', cell2mat(idx2idArray(node)));
-                                first = false;
-                                firstNode = node;
-                            end
-                            am(node,nni) = false;
-                            am(nni,node) = false;
-                            if nni == firstNode
-                                % closed path (polygon) -> use a 'closepath' command instead of a line
-                                fprintf(fileId, 'cp\n');
-                            else
-                                fprintf(fileId, '%sL\n', cell2mat(idx2idArray(nni)));
-                            end
-                            node = nni;
-                            search = true;
-                            break;
-                        end
-                    end
-                end 
-
-                fprintf(fileId, '%s\n', strjoin(fileContent(block.contentLines),'\n'));
+                fprintf(fileId, '%s\n', strjoin(fileContent(contentLines),'\n'));
             end
+        else
+            fprintf(fileId, 'N\n');
+
+            [~,sidx] = sort(connCount);
+            for ni = sidx
+                firstNode = -1;
+                first = true;
+                search = true;
+                node = ni;
+
+                while(search)
+                    neighbours = find(am(node,:));
+                    search = false;
+                    for nni = neighbours
+                        if ~am(node,nni)
+                            continue; % edge visited
+                        end
+                        if first
+                            fprintf(fileId, '%sM\n', cell2mat(idx2idArray(node)));
+                            first = false;
+                            firstNode = node;
+                        end
+                        am(node,nni) = false;
+                        am(nni,node) = false;
+                        if nni == firstNode
+                            % closed path (polygon) -> use a 'closepath' command instead of a line
+                            fprintf(fileId, 'cp\n');
+                        else
+                            fprintf(fileId, '%sL\n', cell2mat(idx2idArray(nni)));
+                        end
+                        node = nni;
+                        search = true;
+                        break;
+                    end
+                end
+            end 
+
+            fprintf(fileId, '%s\n', strjoin(fileContent(contentLines),'\n'));
         end
 
         fprintf(fileId, 'GR\n');

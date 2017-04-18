@@ -102,7 +102,7 @@ lastMoveLine = [];
 lastLineLine = [];
 blockMap = containers.Map(); % blockPrefix -> MAP with nodeCount, adjMat, id2idxMap, idx2idArray
 
-% current block data:
+% current block (cb) data:
 cbNewBlock = false;
 cbNodeCount = [];
 cbAdjMat = [];
@@ -352,23 +352,22 @@ function setBlockData(blockMap,blockId,nodeCount,adjMat,id2idxMap,idx2idArray,co
         return; % a block without nodes. probably without an 'N' statement
     end
     theblock = blockMap(blockId);
-    theblock('nodeCount') = nodeCount;
-    theblock('adjMat') = adjMat;
-    theblock('id2idxMap') = id2idxMap;
-    theblock('idx2idArray') = idx2idArray;
-
-    oldContentLines = theblock('contentLines');
-    theblock('contentLines') = [oldContentLines(1:end-1) contentLines]; %#ok<NASGU>
+    theblock.nodeCount = nodeCount;
+    theblock.adjMat = adjMat;
+    theblock.id2idxMap = id2idxMap;
+    theblock.idx2idArray = idx2idArray;
+    theblock.contentLines = [theblock.contentLines(1:end-1) contentLines];
+    blockMap(blockId) = theblock; %#ok<NASGU>
 end
 
 function [nodeCount,adjMat,id2idxMap,idx2idArray,newBlock] = getBlockData(blockMap,blockId)
     if blockMap.isKey(blockId)
         newBlock = false;
         theblock = blockMap(blockId);
-        nodeCount = theblock('nodeCount');
-        adjMat = theblock('adjMat');
-        id2idxMap = theblock('id2idxMap');
-        idx2idArray = theblock('idx2idArray');
+        nodeCount = theblock.nodeCount;
+        adjMat = theblock.adjMat;
+        id2idxMap = theblock.id2idxMap;
+        idx2idArray = theblock.idx2idArray;
     else
         newBlock = true;
         nodeCount = 0;
@@ -376,9 +375,14 @@ function [nodeCount,adjMat,id2idxMap,idx2idArray,newBlock] = getBlockData(blockM
         id2idxMap = containers.Map('KeyType','char','ValueType','uint32');
         idx2idArray = cell(1,100);
         
-        blockMap(blockId) = containers.Map(...
-            {'nodeCount','adjMat','id2idxMap','idx2idArray','contentLines'},...
-            {nodeCount,adjMat,id2idxMap,idx2idArray,[]}); %#ok<NASGU>
+        s = struct();
+        s.nodeCount = nodeCount;
+        s.adjMat = adjMat;
+        s.id2idxMap = id2idxMap;
+        s.idx2idArray = idx2idArray;
+        s.contentLines = [];
+        
+        blockMap(blockId) = s; %#ok<NASGU>
     end
 end
 
@@ -423,11 +427,11 @@ function writeBlocks(blockList, blockMap, fileId, fileContent)
         fprintf(fileId, 'GS\n%s', blockId);
         
         theblock = blockMap(blockId);
-        nodeCount = theblock('nodeCount');
-        idx2idArray = theblock('idx2idArray');
-        contentLines = theblock('contentLines');
+        nodeCount = theblock.nodeCount;
+        idx2idArray = theblock.idx2idArray;
+        contentLines = theblock.contentLines;
 
-        am = theblock('adjMat');
+        am = theblock.adjMat;
         am = am(1:nodeCount,1:nodeCount);
         connCount = sum(am,1);
         total = sum(connCount,2);

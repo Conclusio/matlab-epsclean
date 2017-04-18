@@ -91,9 +91,6 @@ fid1 = fopen(file,'r');
 fid2 = fopen(outfile,'W');
 
 previousBlockPrefix = [];
-currentBlockPrefix = [];
-currentBlockContent = {};
-currentBlockContentFull = {};
 operation = -1; % -1 .. wait for 'EndPageSetup', 0 .. wait for blocks, 1 .. create id, 2 .. analyze block content, 3 .. analyzed
 insideAxg = false;
 blockGood = true;
@@ -102,7 +99,16 @@ blockList = [];
 nested = 0;
 lastMoveLine = [];
 lastLineLine = [];
-blockMap = containers.Map(); % blockPrefix -> MAP with nodeCount, adjMat, id2idxMap, idx2idMap
+blockMap = containers.Map(); % blockPrefix -> MAP with nodeCount, adjMat, id2idxMap, idx2idArray
+
+% current block data:
+cbNodeCount = [];
+cbAdjMat = [];
+cbId2idxMap = [];
+cbIdx2idArray  = [];
+cbPrefix = [];
+cbContent = {};
+cbContentFull = {};
 
 while ~feof(fid1)
     thisLine = fgetl(fid1);
@@ -118,13 +124,15 @@ while ~feof(fid1)
     
     if operation == 3 % block was analyzed
         if blockGood
-            if groupSoft && ~strcmp(currentBlockPrefix, previousBlockPrefix)
+            setBlockData(blockMap,cbPrefix,cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray);
+
+            if groupSoft && ~strcmp(cbPrefix, previousBlockPrefix)
                 % SOFT GROUPING. different block -> dump all existent ones except the current one
 
                 currentBlock = [];
-                if blockMap.isKey(currentBlockPrefix)
-                    currentBlock = blockMap(currentBlockPrefix);
-                    blockMap.remove(currentBlockPrefix);
+                if blockMap.isKey(cbPrefix)
+                    currentBlock = blockMap(cbPrefix);
+                    blockMap.remove(cbPrefix);
                 end
                 
                 writeBlocks(blockList, blockMap, fid2);
@@ -132,14 +140,14 @@ while ~feof(fid1)
                 blockList = [];
                 blockMap = containers.Map();
                 if ~isempty(currentBlock)
-                    blockMap(currentBlockPrefix) = currentBlock;
+                    blockMap(cbPrefix) = currentBlock;
                 end
             end
             
             blockIdx = 0;
             for ii = 1:length(blockList)
                 block = blockList(ii);
-                if strcmp(block.prefix, currentBlockPrefix)
+                if strcmp(block.prefix, cbPrefix)
                     blockIdx = ii;
                     break;
                 end
@@ -148,20 +156,20 @@ while ~feof(fid1)
             if blockIdx == 0
                 % new block
                 block = struct();
-                block.prefix = currentBlockPrefix;
-                block.content = currentBlockContent;
+                block.prefix = cbPrefix;
+                block.content = cbContent;
                 blockList = [blockList block]; %#ok<AGROW>
             else
                 startIdx = length(blockList(blockIdx).content);
-                lc = length(currentBlockContent);
+                lc = length(cbContent);
                 for ii = startIdx:(startIdx+lc-1)
-                    blockList(blockIdx).content{ii} = currentBlockContent{ii-startIdx+1}; %#ok<AGROW>
+                    blockList(blockIdx).content{ii} = cbContent{ii-startIdx+1}; %#ok<AGROW>
                 end
             end
         end
         operation = 0;
-        previousBlockPrefix = currentBlockPrefix;
-        currentBlockPrefix = [];
+        previousBlockPrefix = cbPrefix;
+        cbPrefix = [];
     end
 
 
@@ -186,126 +194,117 @@ while ~feof(fid1)
         if startsWith(thisLine,'%AXGBegin')
             % this could be the beginning of a raw bitmap data block -> just take it
             insideAxg = true;
-            currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
+            cbPrefix = sprintf('%s%s\n',cbPrefix, thisLine);
         elseif startsWith(thisLine,'%AXGEnd')
             insideAxg = false;
-            currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
+            cbPrefix = sprintf('%s%s\n',cbPrefix, thisLine);
         elseif insideAxg
-            currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
+            cbPrefix = sprintf('%s%s\n',cbPrefix, thisLine);
         elseif equalsWith(thisLine,'N')
             % begin analyzing
             operation = 2;
             blockGood = true;
-            currentBlockContent = {};
-            currentBlockContentFull = {};
+            cbContent = {};
+            cbContentFull = {};
             lastMoveLine = [];
-            if ~blockMap.isKey(currentBlockPrefix)
-                blockMap(currentBlockPrefix) = containers.Map(...
-                    {'nodeCount','adjMat','id2idxMap','idx2idMap'},...
-                    {0,false(100),containers.Map(),containers.Map('KeyType','uint32','ValueType','char')});
-            end
+            [cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray] = getBlockData(blockMap,cbPrefix);
         elseif equalsWith(thisLine,'GS')
             nested = nested + 1;
-            currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
+            cbPrefix = sprintf('%s%s\n',cbPrefix, thisLine);
         elseif equalsWith(thisLine,'GR')
             nested = nested - 1;
             if nested >= 0
-                currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
+                cbPrefix = sprintf('%s%s\n',cbPrefix, thisLine);
             else
                 % end of block without a 'N' = newpath command
                 % we don't know what it is, but we take it as a whole
                 blockGood = true;
-                currentBlockContent = {};
-                currentBlockContentFull = {};
+                cbContent = {};
+                cbContentFull = {};
                 operation = 3;
             end
         elseif endsWith(thisLine,'setlinecap')
             hasLineCap = true;
-            currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
+            cbPrefix = sprintf('%s%s\n',cbPrefix, thisLine);
         elseif endsWith(thisLine,'LJ')
             if hasLineCap
-                currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
+                cbPrefix = sprintf('%s%s\n',cbPrefix, thisLine);
             else
                 % add '1 linecap' if no linecap is specified
-                currentBlockPrefix = sprintf('%s%s\n%s\n',currentBlockPrefix,'1 setlinecap',thisLine);
+                cbPrefix = sprintf('%s%s\n%s\n',cbPrefix,'1 setlinecap',thisLine);
             end
         else
-            currentBlockPrefix = sprintf('%s%s\n',currentBlockPrefix, thisLine);
+            cbPrefix = sprintf('%s%s\n',cbPrefix, thisLine);
         end
     elseif operation == 2 % analyze block content
         if startsWith(thisLine,'%AXGBegin')
             % this could be the beginning of a raw bitmap data block -> just take it
             insideAxg = true;
-            currentBlockContent{end+1} = thisLine; %#ok<AGROW>
-            currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
+            cbContent{end+1} = thisLine; %#ok<AGROW>
+            cbContentFull{end+1} = thisLine; %#ok<AGROW>
         elseif startsWith(thisLine,'%AXGEnd')
             insideAxg = false;
-            currentBlockContent{end+1} = thisLine; %#ok<AGROW>
-            currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
+            cbContent{end+1} = thisLine; %#ok<AGROW>
+            cbContentFull{end+1} = thisLine; %#ok<AGROW>
         elseif insideAxg
-            currentBlockContent{end+1} = thisLine; %#ok<AGROW>
-            currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
+            cbContent{end+1} = thisLine; %#ok<AGROW>
+            cbContentFull{end+1} = thisLine; %#ok<AGROW>
         elseif endsWith(thisLine,'re')
             if removeBoxes
                 blockGood = false;
             else
-                currentBlockContent{end+1} = thisLine; %#ok<AGROW>
-                currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
+                cbContent{end+1} = thisLine; %#ok<AGROW>
+                cbContentFull{end+1} = thisLine; %#ok<AGROW>
             end
         elseif equalsWith(thisLine,'clip')
-            blockMap.remove(currentBlockPrefix);
-            currentBlockPrefix = sprintf('%sN\n%s\n%s\n', currentBlockPrefix, strjoin(currentBlockContentFull,'\n'), thisLine);
-            currentBlockContent = {};
-            currentBlockContentFull = {};
-            if ~blockMap.isKey(currentBlockPrefix)
-                blockMap(currentBlockPrefix) = containers.Map(...
-                    {'nodeCount','adjMat','id2idxMap','idx2idMap'},...
-                    {0,false(100),containers.Map(),containers.Map('KeyType','uint32','ValueType','char')});
-            end
-
+            blockMap.remove(cbPrefix);
+            cbPrefix = sprintf('%sN\n%s\n%s\n', cbPrefix, strjoin(cbContentFull,'\n'), thisLine);
+            cbContent = {};
+            cbContentFull = {};
+            [cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray] = getBlockData(blockMap,cbPrefix);
         elseif endsWith(thisLine,'M')
             lastMoveLine = thisLine;
             nextline = fgetl(fid1); % ASSUMPTION: there is an L directly after an M
             lastLineLine = nextline;
             moveId = thisLine(1:end-1);
             lineId = nextline(1:end-1);
-            addConnection(blockMap, currentBlockPrefix, moveId, lineId);
-            currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
-            currentBlockContentFull{end+1} = nextline; %#ok<AGROW>
+            [cbAdjMat,cbIdx2idArray,cbNodeCount] = addConnection(cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNodeCount,moveId,lineId);
+            cbContentFull{end+1} = thisLine; %#ok<AGROW>
+            cbContentFull{end+1} = nextline; %#ok<AGROW>
         elseif equalsWith(thisLine,'cp')
             moveId = lastLineLine(1:end-1);
             lineId = lastMoveLine(1:end-1);
-            addConnection(blockMap, currentBlockPrefix, moveId, lineId);
+            [cbAdjMat,cbIdx2idArray,cbNodeCount] = addConnection(cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNodeCount,moveId,lineId);
             lastLineLine = lastMoveLine;
-            currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
+            cbContentFull{end+1} = thisLine; %#ok<AGROW>
         elseif endsWith(thisLine,'L')
             moveId = lastLineLine(1:end-1);
             lineId = thisLine(1:end-1);
-            addConnection(blockMap, currentBlockPrefix, moveId, lineId);
+            [cbAdjMat,cbIdx2idArray,cbNodeCount] = addConnection(cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNodeCount,moveId,lineId);
             lastLineLine = thisLine;
-            currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
+            cbContentFull{end+1} = thisLine; %#ok<AGROW>
         elseif equalsWith(thisLine,'f')
             % special handling for filled areas
-            currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
-            currentBlockContent = currentBlockContentFull;
+            cbContentFull{end+1} = thisLine; %#ok<AGROW>
+            cbContent = cbContentFull;
             % remove all connections:
-            b = blockMap(currentBlockPrefix);
-            b('nodeCount') = 0; %#ok<NASGU>
+            cbNodeCount = 0;
         elseif equalsWith(thisLine,'GS')
             nested = nested + 1;
-            currentBlockContent{end+1} = thisLine; %#ok<AGROW>
-            currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
+            cbContent{end+1} = thisLine; %#ok<AGROW>
+            cbContentFull{end+1} = thisLine; %#ok<AGROW>
         elseif equalsWith(thisLine,'GR')
             % end of block content
             nested = nested - 1;
             if nested >= 0
-                currentBlockContent{end+1} = thisLine; %#ok<AGROW>
+                cbContent{end+1} = thisLine; %#ok<AGROW>
+                cbContentFull{end+1} = thisLine; %#ok<AGROW>
             else
                 operation = 3; % end of block content
             end
         else
-            currentBlockContent{end+1} = thisLine; %#ok<AGROW>
-            currentBlockContentFull{end+1} = thisLine; %#ok<AGROW>
+            cbContent{end+1} = thisLine; %#ok<AGROW>
+            cbContentFull{end+1} = thisLine; %#ok<AGROW>
         end
     end
         
@@ -344,41 +343,63 @@ function r = equalsWith(string1, pattern)
     r = strcmp(string1,pattern);
 end
 
-function id = getNodeId(blockMap, blockId, nodeIndex)
+function setBlockData(blockMap,blockId,nodeCount,adjMat,id2idxMap,idx2idArray)
+    if ~blockMap.isKey(blockId)
+        return; % a block without nodes. probably without an 'N' statement
+    end
     theblock = blockMap(blockId);
-    themap = theblock('idx2idMap');
-    id = themap(nodeIndex);
+    theblock('nodeCount') = nodeCount;
+    theblock('adjMat') = adjMat;
+    theblock('id2idxMap') = id2idxMap;
+    theblock('idx2idArray') = idx2idArray; %#ok<NASGU>
 end
 
-function index = getNodeIndex(blockMap, blockId, nodeId)
-    theblock = blockMap(blockId);
-    themap = theblock('id2idxMap');
-    if themap.isKey(nodeId)
-        index = themap(nodeId);
-    else
-        index = theblock('nodeCount') + 1;
-        theblock('nodeCount') = index;
-        themap(nodeId) = index; %#ok<NASGU>
+function [nodeCount,adjMat,id2idxMap,idx2idArray] = getBlockData(blockMap,blockId)
 
-        % other direction index -> id:
-        themap2 = theblock('idx2idMap');
-        themap2(index) = nodeId; %#ok<NASGU>
+    if blockMap.isKey(blockId)
+        theblock = blockMap(blockId);
+        nodeCount = theblock('nodeCount');
+        adjMat = theblock('adjMat');
+        id2idxMap = theblock('id2idxMap');
+        idx2idArray = theblock('idx2idArray');
+    else
+        nodeCount = 0;
+        adjMat = false(100);
+        id2idxMap = containers.Map('KeyType','char','ValueType','uint32');
+        idx2idArray = cell(1,100);
+        
+        blockMap(blockId) = containers.Map(...
+            {'nodeCount','adjMat','id2idxMap','idx2idArray'},...
+            {nodeCount,adjMat,id2idxMap,idx2idArray}); %#ok<NASGU>
     end
 end
 
-function addConnection(blockMap, blockId, nodeId1, nodeId2)
+function [index,idx2idArray,nodeCount] = getNodeIndex(id2idxMap, idx2idArray, nodeCount, nodeId)
+    if id2idxMap.isKey(nodeId)
+        index = id2idxMap(nodeId);
+    else
+        nodeCount = nodeCount + 1;
+        index = nodeCount;
+        id2idxMap(nodeId) = index; %#ok<NASGU>
+
+        % other direction index -> id:
+        if index > length(idx2idArray)
+            idx2idArray = [idx2idArray cell(1,100)];
+        end
+        idx2idArray{index} = nodeId;
+    end
+end
+
+function [adjMat,idx2idArray,nodeCount] = addConnection(adjMat, id2idxMap, idx2idArray, nodeCount, nodeId1, nodeId2)
     if strcmp(nodeId1, nodeId2)
         return; % ignore zero length lines
     end
-    idx1 = getNodeIndex(blockMap, blockId, nodeId1);
-    idx2 = getNodeIndex(blockMap, blockId, nodeId2);
-    theblock = blockMap(blockId);
-    count = theblock('nodeCount');
 
-    adjMat = theblock('adjMat');
+    [idx1,idx2idArray,nodeCount] = getNodeIndex(id2idxMap,idx2idArray,nodeCount,nodeId1);
+    [idx2,idx2idArray,nodeCount] = getNodeIndex(id2idxMap,idx2idArray,nodeCount,nodeId2);
+
     adjSize = size(adjMat,1);
-
-    if count > adjSize
+    if nodeCount > adjSize
         % resize adjacency matrix
         adjMat = [adjMat false(adjSize, 100)];
         adjMat = [adjMat ; false(100, adjSize+100)];
@@ -386,17 +407,17 @@ function addConnection(blockMap, blockId, nodeId1, nodeId2)
 
     adjMat(idx1,idx2) = true;
     adjMat(idx2,idx1) = true;
-    theblock('adjMat') = adjMat; %#ok<NASGU>
 end
 
 function writeBlocks(blockList, blockMap, fileId)
     for block = blockList
         fprintf(fileId, 'GS\n%s', block.prefix);
         if blockMap.isKey(block.prefix)
-            b = blockMap(block.prefix);
-            nodeCount = b('nodeCount');
+            theblock = blockMap(block.prefix);
+            nodeCount = theblock('nodeCount');
+            idx2idArray = theblock('idx2idArray');
 
-            am = b('adjMat');
+            am = theblock('adjMat');
             am = am(1:nodeCount,1:nodeCount);
             connCount = sum(am,1);
             total = sum(connCount,2);
@@ -428,7 +449,7 @@ function writeBlocks(blockList, blockMap, fileId)
                                 continue; % edge visited
                             end
                             if first
-                                fprintf(fileId, '%sM\n', getNodeId(blockMap, block.prefix, node));
+                                fprintf(fileId, '%sM\n', cell2mat(idx2idArray(node)));
                                 first = false;
                                 firstNode = node;
                             end
@@ -438,7 +459,7 @@ function writeBlocks(blockList, blockMap, fileId)
                                 % closed path (polygon) -> use a 'closepath' command instead of a line
                                 fprintf(fileId, 'cp\n');
                             else
-                                fprintf(fileId, '%sL\n', getNodeId(blockMap, block.prefix, nni));
+                                fprintf(fileId, '%sL\n', cell2mat(idx2idArray(nni)));
                             end
                             node = nni;
                             search = true;

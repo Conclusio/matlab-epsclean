@@ -18,9 +18,9 @@ function epsclean( file, outfile, removeBoxes, groupSoft )
 %   It also removes paths with 're' (rectangle) elements when supplying the parameter 'removeBoxes' with true. The
 %   default is false.
 %   In case the 'groupSoft' parameter is true it does not group elements according to their properties over the whole
-%   document. It will rather group them only if the same elements sequentially occur, but not if they are interrupted by
-%   elements with different properties. This will result in more fragmentation, but the Z-order will be kept intact. The
-%   default is false.
+%   document. It will rather group them only if the same elements occur sequentially, but not if they are interrupted by
+%   elements with different properties. This will result in more fragmentation, but the Z-order will be kept intact. Use
+%   this (set to true) if you have trouble with the Z-order. The default is false.
 %
 %   Example 1
 %   ---------
@@ -56,6 +56,9 @@ function epsclean( file, outfile, removeBoxes, groupSoft )
 %   - The Z-order of elements can be preserved by using 'groupSoft = true'
 %      o See https://github.com/Conclusio/matlab-epsclean/issues/6
 %      o This will cause additional fragmentation which might or might not be what you want
+%   2017-04-18 (YYYY-MM-DD)
+%   - Major performance increase for creating the adjacency matrix (for creating continous polylines)
+%   - A lot of other performance enhancements
 %
 %   ------------------------------------------------------------------------------------------
 %   Copyright 2017, Stefan Spelitz, Vienna University of Technology (TU Wien).
@@ -100,24 +103,19 @@ blockList = [];
 nested = 0;
 lastMLine = [];
 lastLLine = [];
-lastMIdx = [];
-lastLIdx = [];
-blockMap = containers.Map(); % blockPrefix -> MAP with nodeCount, adjMat, id2idxMap, idx2idArray
+blockMap = containers.Map(); % key=blockPrefix -> MAP with connection information and content for blocks
 
 % current block (cb) data:
 cbNewBlock = false;
-cbNodeCount = [];
-cbAdjMat = [];
-cbId2idxMap = [];
-cbIdx2idArray  = [];
 cbPrefix = [];
 cbContentLines = -ones(1,100);
 cbContentLinesFull = -ones(1,100);
 cbContentLinesIdx = 1;
 cbContentLinesFullIdx = 1;
+cbConn = {};
 
 % load whole file into memory:
-fileContent = textscan(fid1,'%s','delimiter','\n');
+fileContent = textscan(fid1,'%s','delimiter','\n','whitespace','');
 fileContent = fileContent{1};
 lineCount = length(fileContent);
 lineIdx = 0;
@@ -155,7 +153,7 @@ while lineIdx < lineCount
                 end
             end
 
-            setBlockData(blockMap,cbPrefix,cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray,cbContentLines(1:cbContentLinesIdx-1));
+            setBlockData(blockMap,cbPrefix,cbContentLines(1:cbContentLinesIdx-1),cbConn);
             if cbNewBlock
                 % new block
                 block = struct('prefix', cbPrefix);
@@ -202,7 +200,7 @@ while lineIdx < lineCount
             cbContentLinesIdx = 1;
             cbContentLinesFullIdx = 1;
             lastMLine = [];
-            [cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNewBlock] = getBlockData(blockMap,cbPrefix);
+            [cbNewBlock,cbConn] = getBlockData(blockMap,cbPrefix);
         elseif equalsWith(thisLine,'GS')
             nested = nested + 1;
             cbPrefix = sprintf('%s%s\n',cbPrefix, thisLine);
@@ -217,7 +215,7 @@ while lineIdx < lineCount
                 blockGood = true;
                 cbContentLinesIdx = 1;
                 cbContentLinesFullIdx = 1;
-                [cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNewBlock] = getBlockData(blockMap,cbPrefix);
+                [cbNewBlock,cbConn] = getBlockData(blockMap,cbPrefix);
             end
         elseif endsWith(thisLine,'setlinecap')
             hasLineCap = true;
@@ -253,7 +251,7 @@ while lineIdx < lineCount
             cbPrefix = sprintf('%sN\n%s\n%s\n', cbPrefix, strjoin(fileContent(cbContentLinesFull(1:cbContentLinesFullIdx-1))), thisLine);
             cbContentLinesIdx = 1;
             cbContentLinesFullIdx = 1;
-            [cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNewBlock] = getBlockData(blockMap,cbPrefix);
+            [cbNewBlock,cbConn] = getBlockData(blockMap,cbPrefix);
         elseif endsWith(thisLine,'M')
             lastMLine = thisLine;
             lineIdx = lineIdx + 1;
@@ -263,7 +261,7 @@ while lineIdx < lineCount
             moveId = thisLine(1:end-1);
             lineId = nextline(1:end-1);
             
-            [cbAdjMat,cbIdx2idArray,cbNodeCount,lastMIdx,lastLIdx] = addConnection(cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNodeCount,moveId,lineId,[],[]);
+            [cbConn] = addConnection(moveId,lineId,cbConn);
             [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx-1,false);
             [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,false);
         elseif equalsWith(thisLine,'cp')
@@ -271,14 +269,14 @@ while lineIdx < lineCount
             lineId = lastMLine(1:end-1);
             lastLLine = lastMLine;
 
-            [cbAdjMat,cbIdx2idArray,cbNodeCount,~,lastLIdx] = addConnection(cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNodeCount,moveId,lineId,lastLIdx,lastMIdx);
+            [cbConn] = addConnection(moveId,lineId,cbConn);
             [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,false);
         elseif endsWith(thisLine,'L')
             moveId = lastLLine(1:end-1);
             lineId = thisLine(1:end-1);
             lastLLine = thisLine;
 
-            [cbAdjMat,cbIdx2idArray,cbNodeCount,~,lastLIdx] = addConnection(cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNodeCount,moveId,lineId,lastLIdx,[]);
+            [cbConn] = addConnection(moveId,lineId,cbConn);
             [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,false);
         elseif equalsWith(thisLine,'f')
             % special handling for filled areas
@@ -286,7 +284,7 @@ while lineIdx < lineCount
             cbContentLines = cbContentLinesFull;
             cbContentLinesIdx = cbContentLinesFullIdx;
             % remove all connections:
-            cbNodeCount = 0;
+            cbConn = {};
         elseif equalsWith(thisLine,'GS')
             nested = nested + 1;
             [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,true);
@@ -353,83 +351,36 @@ function [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFull
     end
 end
 
-function setBlockData(blockMap,blockId,nodeCount,adjMat,id2idxMap,idx2idArray,contentLines)
+function setBlockData(blockMap,blockId,contentLines,conn)
     if ~blockMap.isKey(blockId)
         return; % a block without nodes. probably without an 'N' statement
     end
     theblock = blockMap(blockId);
-    theblock.nodeCount = nodeCount;
-    theblock.adjMat = adjMat;
-    theblock.id2idxMap = id2idxMap;
-    theblock.idx2idArray = idx2idArray;
     theblock.contentLines = [theblock.contentLines(1:end-1) contentLines];
+    theblock.conn = conn;
     blockMap(blockId) = theblock; %#ok<NASGU>
 end
 
-function [nodeCount,adjMat,id2idxMap,idx2idArray,newBlock] = getBlockData(blockMap,blockId)
+function [newBlock,conn] = getBlockData(blockMap,blockId)
     if blockMap.isKey(blockId)
         newBlock = false;
         theblock = blockMap(blockId);
-        nodeCount = theblock.nodeCount;
-        adjMat = theblock.adjMat;
-        id2idxMap = theblock.id2idxMap;
-        idx2idArray = theblock.idx2idArray;
+        conn = theblock.conn;
     else
         newBlock = true;
-        nodeCount = 0;
-        adjMat = false(100);
-        id2idxMap = containers.Map('KeyType','char','ValueType','uint32');
-        idx2idArray = cell(1,100);
+        conn = {};
         
         s = struct();
-        s.nodeCount = nodeCount;
-        s.adjMat = adjMat;
-        s.id2idxMap = id2idxMap;
-        s.idx2idArray = idx2idArray;
         s.contentLines = [];
+        s.conn = conn;
         
         blockMap(blockId) = s; %#ok<NASGU>
     end
 end
 
-function [index,idx2idArray,nodeCount] = getNodeIndex(id2idxMap, idx2idArray, nodeCount, nodeId)
-    if id2idxMap.isKey(nodeId)
-        index = id2idxMap(nodeId);
-    else
-        nodeCount = nodeCount + 1;
-        index = nodeCount;
-        id2idxMap(nodeId) = index; %#ok<NASGU>
-
-        % other direction index -> id:
-        if index > length(idx2idArray)
-            idx2idArray = [idx2idArray cell(1,100)];
-        end
-        idx2idArray{index} = nodeId;
-    end
-end
-
-function [adjMat,idx2idArray,nodeCount,idx1,idx2] = addConnection(adjMat, id2idxMap, idx2idArray, nodeCount, nodeId1, nodeId2, idx1, idx2)
-    if strcmp(nodeId1, nodeId2)
-        return; % ignore zero length lines
-    end
-
-    % find node-index for (string) node-id
-    if isempty(idx1)
-        [idx1,idx2idArray,nodeCount] = getNodeIndex(id2idxMap,idx2idArray,nodeCount,nodeId1);
-    end
-    if isempty(idx2)
-        [idx2,idx2idArray,nodeCount] = getNodeIndex(id2idxMap,idx2idArray,nodeCount,nodeId2);
-    end
-
-    adjSize = size(adjMat,1);
-    if nodeCount > adjSize
-        % resize adjacency matrix
-        adjMat = [adjMat false(adjSize, 100)];
-        adjMat = [adjMat ; false(100, adjSize+100)];
-    end
-
-    adjMat(idx1,idx2) = true;
-    adjMat(idx2,idx1) = true;
+function [conn] = addConnection(nodeId1, nodeId2, conn)
+    conn{1,end+1} = nodeId1; % from
+    conn{2,end}   = nodeId2; % to
 end
 
 function writeBlocks(blockList, blockMap, fileId, fileContent)
@@ -438,12 +389,31 @@ function writeBlocks(blockList, blockMap, fileId, fileContent)
         fprintf(fileId, 'GS\n%s', blockId);
         
         theblock = blockMap(blockId);
-        nodeCount = theblock.nodeCount;
-        idx2idArray = theblock.idx2idArray;
         contentLines = theblock.contentLines;
 
-        am = theblock.adjMat;
-        am = am(1:nodeCount,1:nodeCount);
+        % build adjacency matrix from connections:
+        conn = theblock.conn;
+        if isempty(conn)
+            am = [];
+        else
+            from = conn(1,:); % from nodes
+            to = conn(2,:); % to nodes
+            [idx2idArray,~,ic] = unique([from to]);
+
+            fromIdx = ic(1:length(from));
+            toIdx = ic(length(from)+1:end);
+
+            nodeCount = max(ic);
+            am = false(nodeCount); % adjacency matrix
+
+            idx1 = sub2ind(size(am),fromIdx,toIdx);
+            idx2 = sub2ind(size(am),toIdx,fromIdx);
+            idxD = sub2ind(size(am),1:nodeCount,1:nodeCount);
+            am(idx1) = true;
+            am(idx2) = true;
+            am(idxD) = false; % diagonal
+        end
+        
         connCount = sum(am,1);
         total = sum(connCount,2);
 
@@ -477,8 +447,8 @@ function writeBlocks(blockList, blockMap, fileId, fileContent)
                             first = false;
                             firstNode = node;
                         end
-                        am(node,nni) = false;
-                        am(nni,node) = false;
+                        am(node,nni) = false; %#ok<AGROW>
+                        am(nni,node) = false; %#ok<AGROW>
                         if nni == firstNode
                             % closed path (polygon) -> use a 'closepath' command instead of a line
                             fprintf(fileId, 'cp\n');

@@ -98,8 +98,10 @@ hasLineCap = false;
 blockList = [];
 
 nested = 0;
-lastMoveLine = [];
-lastLineLine = [];
+lastMLine = [];
+lastLLine = [];
+lastMIdx = [];
+lastLIdx = [];
 blockMap = containers.Map(); % blockPrefix -> MAP with nodeCount, adjMat, id2idxMap, idx2idArray
 
 % current block (cb) data:
@@ -199,7 +201,7 @@ while lineIdx < lineCount
             blockGood = true;
             cbContentLinesIdx = 1;
             cbContentLinesFullIdx = 1;
-            lastMoveLine = [];
+            lastMLine = [];
             [cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNewBlock] = getBlockData(blockMap,cbPrefix);
         elseif equalsWith(thisLine,'GS')
             nested = nested + 1;
@@ -253,26 +255,30 @@ while lineIdx < lineCount
             cbContentLinesFullIdx = 1;
             [cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNewBlock] = getBlockData(blockMap,cbPrefix);
         elseif endsWith(thisLine,'M')
-            lastMoveLine = thisLine;
+            lastMLine = thisLine;
             lineIdx = lineIdx + 1;
             nextline = cell2mat(fileContent(lineIdx)); % ASSUMPTION: there is an L directly after an M
-            lastLineLine = nextline;
+            lastLLine = nextline;
+            
             moveId = thisLine(1:end-1);
             lineId = nextline(1:end-1);
-            [cbAdjMat,cbIdx2idArray,cbNodeCount] = addConnection(cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNodeCount,moveId,lineId);
+            
+            [cbAdjMat,cbIdx2idArray,cbNodeCount,lastMIdx,lastLIdx] = addConnection(cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNodeCount,moveId,lineId,[],[]);
             [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx-1,false);
             [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,false);
         elseif equalsWith(thisLine,'cp')
-            moveId = lastLineLine(1:end-1);
-            lineId = lastMoveLine(1:end-1);
-            [cbAdjMat,cbIdx2idArray,cbNodeCount] = addConnection(cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNodeCount,moveId,lineId);
-            lastLineLine = lastMoveLine;
+            moveId = lastLLine(1:end-1);
+            lineId = lastMLine(1:end-1);
+            lastLLine = lastMLine;
+
+            [cbAdjMat,cbIdx2idArray,cbNodeCount,~,lastLIdx] = addConnection(cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNodeCount,moveId,lineId,lastLIdx,lastMIdx);
             [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,false);
         elseif endsWith(thisLine,'L')
-            moveId = lastLineLine(1:end-1);
+            moveId = lastLLine(1:end-1);
             lineId = thisLine(1:end-1);
-            [cbAdjMat,cbIdx2idArray,cbNodeCount] = addConnection(cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNodeCount,moveId,lineId);
-            lastLineLine = thisLine;
+            lastLLine = thisLine;
+
+            [cbAdjMat,cbIdx2idArray,cbNodeCount,~,lastLIdx] = addConnection(cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNodeCount,moveId,lineId,lastLIdx,[]);
             [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,false);
         elseif equalsWith(thisLine,'f')
             % special handling for filled areas
@@ -402,13 +408,18 @@ function [index,idx2idArray,nodeCount] = getNodeIndex(id2idxMap, idx2idArray, no
     end
 end
 
-function [adjMat,idx2idArray,nodeCount] = addConnection(adjMat, id2idxMap, idx2idArray, nodeCount, nodeId1, nodeId2)
+function [adjMat,idx2idArray,nodeCount,idx1,idx2] = addConnection(adjMat, id2idxMap, idx2idArray, nodeCount, nodeId1, nodeId2, idx1, idx2)
     if strcmp(nodeId1, nodeId2)
         return; % ignore zero length lines
     end
 
-    [idx1,idx2idArray,nodeCount] = getNodeIndex(id2idxMap,idx2idArray,nodeCount,nodeId1);
-    [idx2,idx2idArray,nodeCount] = getNodeIndex(id2idxMap,idx2idArray,nodeCount,nodeId2);
+    % find node-index for (string) node-id
+    if isempty(idx1)
+        [idx1,idx2idArray,nodeCount] = getNodeIndex(id2idxMap,idx2idArray,nodeCount,nodeId1);
+    end
+    if isempty(idx2)
+        [idx2,idx2idArray,nodeCount] = getNodeIndex(id2idxMap,idx2idArray,nodeCount,nodeId2);
+    end
 
     adjSize = size(adjMat,1);
     if nodeCount > adjSize

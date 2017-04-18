@@ -96,6 +96,7 @@ insideAxg = false;
 blockGood = true;
 hasLineCap = false;
 blockList = [];
+
 nested = 0;
 lastMoveLine = [];
 lastLineLine = [];
@@ -107,18 +108,27 @@ cbAdjMat = [];
 cbId2idxMap = [];
 cbIdx2idArray  = [];
 cbPrefix = [];
-cbContent = {};
-cbContentFull = {};
+cbContentLines = -ones(1,100);
+cbContentLinesFull = -ones(1,100);
+cbContentLinesIdx = 1;
+cbContentLinesFullIdx = 1;
 
-while ~feof(fid1)
-    thisLine = fgetl(fid1);
+% load whole file into memory:
+fileContent = textscan(fid1,'%s','delimiter','\n');
+fileContent = fileContent{1};
+lineCount = length(fileContent);
+lineIdx = 0;
+
+while lineIdx < lineCount
+    lineIdx = lineIdx + 1;
+    thisLine = cell2mat(fileContent(lineIdx));
     
     % normal read until '%%EndPageSetup'
     if operation == -1
         if equalsWith(thisLine, '%%EndPageSetup')
             operation = 0;
+            fprintf(fid2, '%s\n', strjoin(fileContent(1:lineIdx),'\n')); % dump prolog
         end
-        fprintf(fid2, '%s\n', thisLine);
         continue;
     end
     
@@ -135,7 +145,7 @@ while ~feof(fid1)
                     blockMap.remove(cbPrefix);
                 end
                 
-                writeBlocks(blockList, blockMap, fid2);
+                writeBlocks(blockList, blockMap, fid2, fileContent);
                 
                 blockList = [];
                 blockMap = containers.Map();
@@ -157,14 +167,10 @@ while ~feof(fid1)
                 % new block
                 block = struct();
                 block.prefix = cbPrefix;
-                block.content = cbContent;
+                block.contentLines = cbContentLines(1:cbContentLinesIdx-1);
                 blockList = [blockList block]; %#ok<AGROW>
             else
-                startIdx = length(blockList(blockIdx).content);
-                lc = length(cbContent);
-                for ii = startIdx:(startIdx+lc-1)
-                    blockList(blockIdx).content{ii} = cbContent{ii-startIdx+1}; %#ok<AGROW>
-                end
+                blockList(blockIdx).contentLines = [blockList(blockIdx).contentLines(1:end-1) cbContentLines(1:cbContentLinesIdx-1)]; %#ok<AGROW>
             end
         end
         operation = 0;
@@ -181,7 +187,7 @@ while ~feof(fid1)
             nested = 0;
         elseif equalsWith(thisLine,'%%Trailer')
             % end of figures -> dump all blocks
-            writeBlocks(blockList, blockMap, fid2);
+            writeBlocks(blockList, blockMap, fid2, fileContent);
             fprintf(fid2, '%s\n', thisLine);
         elseif equalsWith(thisLine,'GR')
             % unexpected GR before a corresponding GS -> ignore
@@ -204,8 +210,10 @@ while ~feof(fid1)
             % begin analyzing
             operation = 2;
             blockGood = true;
-            cbContent = {};
-            cbContentFull = {};
+            cbContentLines = -ones(1,100);
+            cbContentLinesFull = -ones(1,100);
+            cbContentLinesIdx = 1;
+            cbContentLinesFullIdx = 1;
             lastMoveLine = [];
             [cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray] = getBlockData(blockMap,cbPrefix);
         elseif equalsWith(thisLine,'GS')
@@ -219,8 +227,10 @@ while ~feof(fid1)
                 % end of block without a 'N' = newpath command
                 % we don't know what it is, but we take it as a whole
                 blockGood = true;
-                cbContent = {};
-                cbContentFull = {};
+                cbContentLines = -ones(1,100);
+                cbContentLinesFull = -ones(1,100);
+                cbContentLinesIdx = 1;
+                cbContentLinesFullIdx = 1;
                 operation = 3;
             end
         elseif endsWith(thisLine,'setlinecap')
@@ -240,71 +250,68 @@ while ~feof(fid1)
         if startsWith(thisLine,'%AXGBegin')
             % this could be the beginning of a raw bitmap data block -> just take it
             insideAxg = true;
-            cbContent{end+1} = thisLine; %#ok<AGROW>
-            cbContentFull{end+1} = thisLine; %#ok<AGROW>
+            [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,true);
         elseif startsWith(thisLine,'%AXGEnd')
             insideAxg = false;
-            cbContent{end+1} = thisLine; %#ok<AGROW>
-            cbContentFull{end+1} = thisLine; %#ok<AGROW>
+            [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,true);
         elseif insideAxg
-            cbContent{end+1} = thisLine; %#ok<AGROW>
-            cbContentFull{end+1} = thisLine; %#ok<AGROW>
+            [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,true);
         elseif endsWith(thisLine,'re')
             if removeBoxes
                 blockGood = false;
             else
-                cbContent{end+1} = thisLine; %#ok<AGROW>
-                cbContentFull{end+1} = thisLine; %#ok<AGROW>
+                [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,true);
             end
         elseif equalsWith(thisLine,'clip')
             blockMap.remove(cbPrefix);
-            cbPrefix = sprintf('%sN\n%s\n%s\n', cbPrefix, strjoin(cbContentFull,'\n'), thisLine);
-            cbContent = {};
-            cbContentFull = {};
+            cbPrefix = sprintf('%sN\n%s\n%s\n', cbPrefix, strjoin(fileContent(cbContentLinesFull(1:cbContentLinesFullIdx-1))), thisLine);
+            cbContentLines = -ones(1,100);
+            cbContentLinesFull = -ones(1,100);
+            cbContentLinesIdx = 1;
+            cbContentLinesFullIdx = 1;
             [cbNodeCount,cbAdjMat,cbId2idxMap,cbIdx2idArray] = getBlockData(blockMap,cbPrefix);
         elseif endsWith(thisLine,'M')
             lastMoveLine = thisLine;
-            nextline = fgetl(fid1); % ASSUMPTION: there is an L directly after an M
+            lineIdx = lineIdx + 1;
+            nextline = cell2mat(fileContent(lineIdx)); % ASSUMPTION: there is an L directly after an M
             lastLineLine = nextline;
             moveId = thisLine(1:end-1);
             lineId = nextline(1:end-1);
             [cbAdjMat,cbIdx2idArray,cbNodeCount] = addConnection(cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNodeCount,moveId,lineId);
-            cbContentFull{end+1} = thisLine; %#ok<AGROW>
-            cbContentFull{end+1} = nextline; %#ok<AGROW>
+            [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx-1,false);
+            [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,false);
         elseif equalsWith(thisLine,'cp')
             moveId = lastLineLine(1:end-1);
             lineId = lastMoveLine(1:end-1);
             [cbAdjMat,cbIdx2idArray,cbNodeCount] = addConnection(cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNodeCount,moveId,lineId);
             lastLineLine = lastMoveLine;
-            cbContentFull{end+1} = thisLine; %#ok<AGROW>
+            [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,false);
         elseif endsWith(thisLine,'L')
             moveId = lastLineLine(1:end-1);
             lineId = thisLine(1:end-1);
             [cbAdjMat,cbIdx2idArray,cbNodeCount] = addConnection(cbAdjMat,cbId2idxMap,cbIdx2idArray,cbNodeCount,moveId,lineId);
             lastLineLine = thisLine;
-            cbContentFull{end+1} = thisLine; %#ok<AGROW>
+            [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,false);
         elseif equalsWith(thisLine,'f')
             % special handling for filled areas
-            cbContentFull{end+1} = thisLine; %#ok<AGROW>
-            cbContent = cbContentFull;
+            [~,cbContentLinesFull,~,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,false);
+            cbContentLines = cbContentLinesFull;
+            cbContentLinesIdx = cbContentLinesFullIdx;
             % remove all connections:
             cbNodeCount = 0;
         elseif equalsWith(thisLine,'GS')
             nested = nested + 1;
-            cbContent{end+1} = thisLine; %#ok<AGROW>
-            cbContentFull{end+1} = thisLine; %#ok<AGROW>
+            [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,true);
         elseif equalsWith(thisLine,'GR')
             % end of block content
             nested = nested - 1;
             if nested >= 0
-                cbContent{end+1} = thisLine; %#ok<AGROW>
-                cbContentFull{end+1} = thisLine; %#ok<AGROW>
+                [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,true);
             else
                 operation = 3; % end of block content
             end
         else
-            cbContent{end+1} = thisLine; %#ok<AGROW>
-            cbContentFull{end+1} = thisLine; %#ok<AGROW>
+            [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,true);
         end
     end
         
@@ -319,7 +326,6 @@ if ~keepInput
 end
 
 end
-
 
 function r = startsWith(string1, pattern)
     l = length(pattern);
@@ -341,6 +347,22 @@ end
 
 function r = equalsWith(string1, pattern)
     r = strcmp(string1,pattern);
+end
+
+function [cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx] = addContent(cbContentLines,cbContentLinesFull,cbContentLinesIdx,cbContentLinesFullIdx,lineIdx,both)
+    if cbContentLinesFullIdx > length(cbContentLinesFull)
+        cbContentLinesFull = [cbContentLinesFull -ones(1,100)];
+    end
+    cbContentLinesFull(cbContentLinesFullIdx) = lineIdx;
+    cbContentLinesFullIdx = cbContentLinesFullIdx + 1;
+
+    if both
+        if cbContentLinesIdx > length(cbContentLines)
+            cbContentLines = [cbContentLines -ones(1,100)];
+        end
+        cbContentLines(cbContentLinesIdx) = lineIdx;
+        cbContentLinesIdx = cbContentLinesIdx + 1;
+    end
 end
 
 function setBlockData(blockMap,blockId,nodeCount,adjMat,id2idxMap,idx2idArray)
@@ -409,7 +431,7 @@ function [adjMat,idx2idArray,nodeCount] = addConnection(adjMat, id2idxMap, idx2i
     adjMat(idx2,idx1) = true;
 end
 
-function writeBlocks(blockList, blockMap, fileId)
+function writeBlocks(blockList, blockMap, fileId, fileContent)
     for block = blockList
         fprintf(fileId, 'GS\n%s', block.prefix);
         if blockMap.isKey(block.prefix)
@@ -423,13 +445,12 @@ function writeBlocks(blockList, blockMap, fileId)
             total = sum(connCount,2);
 
             if total == 0
-                if ~isempty(block.content)
+                if ~isempty(block.contentLines)
                     if isempty(regexp(block.prefix, sprintf('clip\n$'), 'once')) % prefix does not end with clip
                         fprintf(fileId, 'N\n');
                     end
-                    for c = block.content
-                        fprintf(fileId, '%s\n', cell2mat(c));
-                    end
+                    
+                    fprintf(fileId, '%s\n', strjoin(fileContent(block.contentLines),'\n'));
                 end
             else
                 fprintf(fileId, 'N\n');
@@ -468,9 +489,7 @@ function writeBlocks(blockList, blockMap, fileId)
                     end
                 end 
 
-                for c = block.content
-                    fprintf(fileId, '%s\n', cell2mat(c));
-                end
+                fprintf(fileId, '%s\n', strjoin(fileContent(block.contentLines),'\n'));
             end
         end
 

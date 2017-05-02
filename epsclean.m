@@ -107,7 +107,7 @@ blockMap = containers.Map(); % key=blockPrefix -> MAP with connection informatio
 
 % current block (cb) data:
 cbNewBlock = false;
-cbPrefix = [];
+cbPrefix = '';
 cbContentLines = -ones(1,100);
 cbContentLinesFull = -ones(1,100);
 cbContentLinesIdx = 1;
@@ -162,7 +162,7 @@ while lineIdx < lineCount
         end
         operation = 0;
         previousBlockPrefix = cbPrefix;
-        cbPrefix = [];
+        cbPrefix = '';
     end
 
 

@@ -10,6 +10,47 @@ hold on;
 colormap default;
 
 % ------------------
+% TEST: test case with one polygon having a 'self edge'.
+% ------------------
+
+copyfile('selfIntersect.eps', 'results/selfIntersect_out.eps');
+tic;
+epsclean('results/selfIntersect_out.eps','results/selfIntersect_clean.eps','combineAreas',true);
+disp(toc);
+
+% ------------------
+% TEST: circular polygon with hole in the center
+% ------------------
+copyfile('circular.eps', 'results/circular_out.eps');
+epsclean('results/circular_out.eps','results/circular_clean.eps');
+
+% ------------------
+% TEST: User 'morattico' test case
+% ------------------
+
+copyfile('fig1_original.eps', 'results/fig1_out.eps');
+tic;
+epsclean('results/fig1_out.eps','results/fig1_clean.eps','combineAreas',true);
+disp(toc);
+% (might need soft-grouping for z-order)
+
+% ------------------
+% TEST: InvertHardCopy
+% ------------------
+clf;
+set(gcf,'Color','k');
+set(gcf,'InvertHardCopy','off');
+rectangle('Position',[1,1,2,2],'FaceColor','k','EdgeColor','g','LineWidth',5);
+xlim([0,4]);
+ylim([0,4]);
+print(gcf,'-depsc','-painters','results/black_out.eps');
+epsclean('results/black_out.eps','results/black_clean.eps','groupSoft',true);
+close(fh);
+fh = figure;
+hold on;
+colormap default;
+
+% ------------------
 % TEST: Z-Order test
 % ------------------
 clf;
@@ -18,7 +59,7 @@ rectangle('Position',[3,4,5,10],'FaceColor',[0 1 0],'EdgeColor','k','LineWidth',
 rectangle('Position',[5,6,5,10],'FaceColor',[1 0 0],'EdgeColor','k','LineWidth',15);
 print(gcf,'-depsc','-painters','results/area1_out.eps');
 tic;
-epsclean('results/area1_out.eps','results/area1_clean.eps',false,true); % NEEDS SOFT GROUPING!!
+epsclean('results/area1_out.eps','results/area1_clean.eps','groupSoft',true); % NEEDS SOFT GROUPING!!
 disp(toc);
 
 % ------------------
@@ -45,7 +86,7 @@ load handel.mat;
 spectrogram(y,128,120,128,Fs);
 print(gcf,'-depsc','-painters','results/handel_out.eps');
 tic;
-epsclean('results/handel_out.eps','results/handel_clean.eps',false,true); % NEEDS SOFT GROUPING!!
+epsclean('results/handel_out.eps','results/handel_clean.eps','groupSoft',true); % NEEDS SOFT GROUPING!!
 disp(toc);
 
 % ------------------

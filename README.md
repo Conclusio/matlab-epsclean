@@ -3,6 +3,7 @@ Clean/Repair .eps PostScript vector graphic files created by Matlab R2016b.
 * Paths are grouped together according to their properties
 * White line artifacts are fixed
 * Broken up polylines are connected back together if they share the same properties (good for post-processing in Illustrator/Inkscape/etc.)
+* Adjacent polygons of the same type are merged together (use parameter 'combineAreas')
 
 ## Related
 

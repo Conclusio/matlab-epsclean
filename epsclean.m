@@ -375,7 +375,7 @@ fclose(fid2);
 
 if ~keepInput
     delete(file);
-    movefile(outfile, file);
+    movefile(outfile, file, 'f');
 end
 
 end

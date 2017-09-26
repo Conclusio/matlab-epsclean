@@ -142,6 +142,7 @@ operation = -1; % -1 .. wait for 'EndPageSetup', 0 .. wait for blocks, 1 .. crea
 insideAxg = false;
 blockGood = true;
 hasLineCap = false;
+isDashMode = false;
 blockList = [];
 
 nested = 0;
@@ -226,6 +227,7 @@ while lineIdx < lineCount
             % start of a block
             operation = 1;
             hasLineCap = false;
+            isDashMode = false;
             nested = 0;
         elseif equalsWith(thisLine,'%%Trailer')
             % end of figures -> dump all blocks
@@ -274,13 +276,16 @@ while lineIdx < lineCount
                 cbConn = {};
                 cbIsFill = false;
             end
+        elseif endsWith(thisLine,'setdash')
+            isDashMode = true;
+            cbPrefix = sprintf('%s%s\n',cbPrefix, thisLine);
         elseif endsWith(thisLine,'setlinecap')
             hasLineCap = true;
             cbPrefix = sprintf('%s%s\n',cbPrefix, thisLine);
         elseif endsWith(thisLine,'LJ')
             if hasLineCap
                 cbPrefix = sprintf('%s%s\n',cbPrefix, thisLine);
-            else
+            elseif ~isDashMode
                 % add '1 linecap' if no linecap is specified
                 cbPrefix = sprintf('%s%s\n%s\n',cbPrefix,'1 setlinecap',thisLine);
             end

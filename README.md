@@ -1,5 +1,5 @@
 # Fixing Matlab Vector Graphics Output
-Clean/Repair .eps PostScript vector graphic files created by Matlab R2016b.
+Clean/Repair .eps PostScript vector graphic files created by Matlab R2016b (and Matlab R2017a. Not working with R2017b and later versions)
 * Paths are grouped together according to their properties
 * White line artifacts are fixed
 * Broken up polylines are connected back together if they share the same properties (good for post-processing in Illustrator/Inkscape/etc.)
@@ -46,7 +46,13 @@ epsclean('out.eps'); % cleans and overwrites the input file
 * If you experience Z-order problems (i.e. the overlappings of your graphics change) try using parameter 'groupSoft' = true.
 ```
 %%% Matlab Code
-epsclean('out.eps',false,true); % the third parameter is for Z-order problems
+epsclean('out.eps','groupSoft',true);
+```
+
+* If you have separating lines between filled areas (![example - gaps highlighted in yellow](https://user-images.githubusercontent.com/38227689/38556022-18bfe056-3cc0-11e8-89e6-ad3984276b20.png)) try using parameter 'closeGaps' = true.
+```
+%%% Matlab Code
+epsclean('out.eps','closeGaps',true);
 ```
 
 * Have a look at the tests/cleantest.m script for test cases and examples

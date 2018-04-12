@@ -11,6 +11,8 @@ function epsclean( file, varargin )
 %   - groupSoft    ... Groups elements only if they occur sequentially. Can help with Z-order problems. Defaults to false.
 %   - combineAreas ... Combines filled polygons to larger ones. Can help with artifacts. Defaults to false.
 %   - removeBoxes  ... Removes box (rectangle) elements. Defaults to false.
+%   - closeGaps    ... For every filled polygon, also draw a fine polyline to close potential gaps between adjacent polygon areas. Defaults to false.
+%   - gapWidth     ... The width of polylines to cover gaps. Defaults to 0.01.
 %
 %   When exporting a figure with Matlab's 'saveas' function to vector graphics multiple things might occur:
 %   - Paths are split up into multiple segments and white lines are created on patch objects
@@ -72,9 +74,13 @@ function epsclean( file, varargin )
 %   - Added the possibility to merge adjacent polygons to avoid artifacts
 %     o See https://github.com/Conclusio/matlab-epsclean/issues/9
 %   - Changed argument style
+%   2018-04-12 (YYYY-MM-DD)
+%   - Added parameter 'closeGaps' to hide lines between filled areas
+%     o See https://github.com/Conclusio/matlab-epsclean/issues/9
+%   - Added parameter 'gapWidth' to control the line width
 %
 %   ------------------------------------------------------------------------------------------
-%   Copyright 2017, Stefan Spelitz, Vienna University of Technology (TU Wien).
+%   Copyright 2017,2018, Stefan Spelitz, Vienna University of Technology (TU Wien).
 %   This code is distributed under the terms of the GNU Lesser General Public License (LGPL).
 %
 %   This program is free software: you can redistribute it and/or modify
@@ -94,6 +100,8 @@ function epsclean( file, varargin )
 removeBoxes = false;
 groupSoft = false;
 combineAreas = false;
+closeGaps = false;
+gapWidth = 0.01;
 outfile = file;
 
 fromIndex = 1;
@@ -121,12 +129,16 @@ addParameter(p,'outFile',outfile,@ischar);
 addParameter(p,'removeBoxes',removeBoxes,@islogical);
 addParameter(p,'groupSoft',groupSoft,@islogical);
 addParameter(p,'combineAreas',combineAreas,@islogical);
+addParameter(p,'closeGaps',closeGaps,@islogical);
+addParameter(p,'gapWidth',gapWidth,@isfloat);
 
 parse(p,varargin{fromIndex:end});
 outfile = p.Results.outFile;
 removeBoxes = p.Results.removeBoxes;
 groupSoft = p.Results.groupSoft;
 combineAreas = p.Results.combineAreas;
+closeGaps = p.Results.closeGaps;
+gapWidth = p.Results.gapWidth;
 
 keepInput = true;
 if strcmp(file, outfile)
@@ -161,7 +173,7 @@ cbIsFill = false;
 
 % load whole file into memory:
 fileContent = textscan(fid1,'%s','delimiter','\n','whitespace','');
-fileContent = fileContent{1};
+fileContent = fileContent{1}';
 lineCount = length(fileContent);
 lineIdx = 0;
 
@@ -171,7 +183,9 @@ while lineIdx < lineCount
     
     % normal read until '%%EndPageSetup'
     if operation == -1
-        if equalsWith(thisLine, '%%EndPageSetup')
+        if closeGaps && startsWith(thisLine,'/f/fill')
+            fileContent(lineIdx) = { sprintf('/f{GS %.5f setlinewidth S GR fill}bd', gapWidth) };
+        elseif equalsWith(thisLine, '%%EndPageSetup')
             operation = 0;
             fprintf(fid2, '%s\n', strjoin(fileContent(1:lineIdx),'\n')); % dump prolog
         end

@@ -10,6 +10,15 @@ hold on;
 colormap default;
 
 % ------------------
+% TEST: test case for closing gaps between areas
+% ------------------
+
+copyfile('fig1_original.eps', 'results/test_gaps_out.eps');
+epsclean('results/test_gaps_out.eps','results/test_gaps_clean.eps','combineAreas',true,'groupSoft',true,'closeGaps',true);
+% control the lines' width using:
+%epsclean('results/test_gaps_out.eps','results/test_gaps_clean.eps','combineAreas',true,'groupSoft',true,'closeGaps',true,'gapWidth',4.0);
+
+% ------------------
 % TEST: test case with one polygon having a 'self edge'.
 % ------------------
 

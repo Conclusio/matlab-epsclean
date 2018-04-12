@@ -106,7 +106,7 @@ outfile = file;
 
 fromIndex = 1;
 % check for old argument style (backward compatibility)
-if nargin >= 2 && ischar(varargin{1}) && ~strcmpi(varargin{1},'removeBoxes') && ~strcmpi(varargin{1},'groupSoft') && ~strcmpi(varargin{1},'combineAreas')
+if nargin >= 2 && ischar(varargin{1}) && ~strcmpi(varargin{1},'removeBoxes') && ~strcmpi(varargin{1},'groupSoft') && ~strcmpi(varargin{1},'combineAreas') && ~strcmpi(varargin{1},'closeGaps') && ~strcmpi(varargin{1},'gapWidth')
     fromIndex = 2;
     outfile = varargin{1};
     if nargin >= 3
